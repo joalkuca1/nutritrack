@@ -27,6 +27,60 @@ function isLowerBetter(profile, measurements) {
   return true;
 }
 
+/* ================= PISTAS DE SCROLL (horizontal / vertical) ================= */
+function enhanceScrollRows() {
+  document.querySelectorAll('.scroll-row').forEach(row => {
+    if (!row.querySelector('.scroll-arrow.left')) {
+      const left = document.createElement('div');
+      left.className = 'scroll-arrow left';
+      left.textContent = '‹';
+      row.appendChild(left);
+    }
+    if (!row.querySelector('.scroll-arrow.right')) {
+      const right = document.createElement('div');
+      right.className = 'scroll-arrow right';
+      right.textContent = '›';
+      row.appendChild(right);
+    }
+    const update = () => {
+      const max = row.scrollWidth - row.clientWidth;
+      const canLeft = row.scrollLeft > 4;
+      const canRight = row.scrollLeft < max - 4 && max > 4;
+      row.classList.toggle('can-scroll-left', canLeft);
+      row.classList.toggle('can-scroll-right', canRight);
+      const leftArrow = row.querySelector('.scroll-arrow.left');
+      const rightArrow = row.querySelector('.scroll-arrow.right');
+      if (leftArrow) leftArrow.classList.toggle('visible', canLeft);
+      if (rightArrow) rightArrow.classList.toggle('visible', canRight);
+    };
+    row.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+  });
+}
+
+function enhanceVerticalScroll(container) {
+  if (!container) return;
+  const update = () => {
+    const max = container.scrollHeight - container.clientHeight;
+    container.classList.toggle('can-scroll-down', container.scrollTop < max - 4);
+  };
+  container.addEventListener('scroll', update, { passive: true });
+  update();
+}
+
+function showPageScrollHint() {
+  const hint = document.getElementById('pageScrollHint');
+  if (!hint) return;
+  hint.classList.remove('show');
+  const scrollable = document.body.scrollHeight > window.innerHeight + 60;
+  if (scrollable) {
+    setTimeout(() => hint.classList.add('show'), 450);
+    const hide = () => hint.classList.remove('show');
+    window.addEventListener('scroll', hide, { passive: true, once: true });
+  }
+}
+
 /* ================= RENDER PRINCIPAL ================= */
 function render() {
   const app = document.getElementById('app');
@@ -40,6 +94,8 @@ function render() {
       initProgressCharts(profile, measurements);
     }
   }
+  enhanceScrollRows();
+  showPageScrollHint();
 }
 
 /* ================= PANTALLA: PERFILES ================= */
@@ -97,6 +153,8 @@ function goToProfiles() {
 function openSheet(html) {
   document.getElementById('sheetContent').innerHTML = html;
   document.getElementById('overlay').classList.add('open');
+  const vs = document.querySelector('#sheetContent .v-scroll');
+  if (vs) enhanceVerticalScroll(vs);
 }
 function closeSheet() {
   document.getElementById('overlay').classList.remove('open');
@@ -125,7 +183,7 @@ function openGlossaryModal(key) {
     <div class="sheet-handle"></div>
     <div style="text-align:center; font-size:40px; margin-bottom:4px;">${g.icon}</div>
     <h2 style="text-align:center;">${g.title}</h2>
-    <p style="font-size:15px; line-height:1.55; color:var(--on-surface-variant); margin-top:12px;">${g.text}</p>
+    <p style="font-size:15.5px; line-height:1.55; color:var(--on-surface-variant); margin-top:12px;">${g.text}</p>
     <button class="btn btn-tonal" style="margin-top:20px;" onclick="openFullGlossary()">📖 Ver glosario completo</button>
   `;
   openSheet(html);
@@ -140,8 +198,8 @@ function openFullGlossary() {
       <div style="display:flex; gap:12px; padding:14px 0; border-bottom:1px solid rgba(0,0,0,0.07);">
         <div style="font-size:24px; line-height:1;">${g.icon}</div>
         <div>
-          <div style="font-weight:700; margin-bottom:3px;">${g.title}</div>
-          <div style="font-size:13.5px; line-height:1.45; color:var(--on-surface-variant);">${g.text}</div>
+          <div style="font-weight:700; margin-bottom:3px; font-size:15.5px;">${g.title}</div>
+          <div style="font-size:14px; line-height:1.45; color:var(--on-surface-variant);">${g.text}</div>
         </div>
       </div>`;
   });
@@ -149,7 +207,7 @@ function openFullGlossary() {
     <div class="sheet-handle"></div>
     <h2>📖 Glosario</h2>
     <p class="sheet-sub">Entiende tus números, sin tecnicismos</p>
-    <div style="max-height:58vh; overflow-y:auto; margin-top:6px;">${items}</div>
+    <div class="v-scroll" style="max-height:58vh; overflow-y:auto; margin-top:6px;">${items}</div>
   `;
   openSheet(html);
 }
@@ -269,9 +327,9 @@ function renderDashboardTab(profile, measurements) {
           ${escapeHtml(profile.name).charAt(0).toUpperCase()}
         </div>
       </div>
-      <div style="display:flex; align-items:center; gap:14px; margin-top:6px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         ${streak >= 2 ? `<div class="streak-chip">🔥 ${streak} semanas de racha</div>` : ''}
-        <span onclick="openFullGlossary()" style="color:var(--primary); font-weight:600; font-size:13px; cursor:pointer;">📖 Glosario</span>
+        <span class="info-link" onclick="openFullGlossary()">📖 Glosario</span>
       </div>
     </div>`;
 
@@ -323,7 +381,7 @@ function renderDashboardTab(profile, measurements) {
     <div class="hero">
       <div class="hero-top">
         <div>
-          <div class="hero-label">PESO ACTUAL <span onclick="openGlossaryModal('weightKg')" style="cursor:pointer; opacity:0.75; font-size:11px;">ⓘ</span></div>
+          <div class="hero-label">PESO ACTUAL <span class="info-icon" onclick="openGlossaryModal('weightKg')">ⓘ</span></div>
           <div class="hero-value"><span class="num">${fmt1(last.weightKg)}</span><span class="unit">kg</span></div>
           <div class="hero-date">Medido el ${formatDateShort(last.date)}</div>
         </div>
@@ -343,9 +401,9 @@ function renderDashboardTab(profile, measurements) {
   const metrics = buildMiniMetrics(measurements);
   if (metrics.length) {
     html += `
-      <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="section-title">
         <span>Resumen corporal</span>
-        <span onclick="openGlossaryModal('percentNote')" style="font-size:12px; font-weight:500; color:var(--primary); cursor:pointer;">¿No suman 100%? ⓘ</span>
+        <span class="info-link" style="margin-top:0;" onclick="openGlossaryModal('percentNote')">¿No suman 100%? ⓘ</span>
       </div>
       <div class="scroll-row">`;
     metrics.forEach(m => { html += renderMetricCard(m); });
@@ -373,7 +431,7 @@ function renderMetricCard(metric) {
     <div class="metric-card">
       <div class="metric-label">
         ${metric.label}
-        ${hasGlossary ? `<span onclick="event.stopPropagation(); openGlossaryModal('${metric.key}')" style="cursor:pointer; opacity:0.6; font-size:12px; margin-left:3px;">ⓘ</span>` : ''}
+        ${hasGlossary ? `<span class="info-icon" onclick="event.stopPropagation(); openGlossaryModal('${metric.key}')">ⓘ</span>` : ''}
       </div>
       <div class="metric-value"><span class="n">${valText}</span>${metric.unit ? `<span class="u">${metric.unit}</span>` : ''}</div>
       ${deltaHtml}
@@ -582,14 +640,14 @@ function renderHistoryTab(profile, measurements) {
       const status = deltaStatus(d, !lowerIsBetter);
       const color = status === 'good' ? 'var(--good)' : status === 'bad' ? 'var(--bad)' : 'var(--on-surface-variant)';
       const arrow = Math.abs(d) < 0.05 ? '→' : (d < 0 ? '▼' : '▲');
-      deltaBadge = `<span style="color:${color}; font-size:12px; font-weight:700;">${arrow} ${fmtDelta(d)} kg</span>`;
+      deltaBadge = `<span style="color:${color}; font-size:13px; font-weight:700;">${arrow} ${fmtDelta(d)} kg</span>`;
     }
     html += `
       <div class="card" style="margin:0 0 12px; cursor:pointer;" onclick="openEditMeasurementSheet('${m.id}')">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <div>
-            <div style="font-weight:700; font-size:15px;">${formatDateLong(m.date)}</div>
-            <div style="font-size:13px; color:var(--on-surface-variant); margin-top:2px;">
+            <div style="font-weight:700; font-size:16px;">${formatDateLong(m.date)}</div>
+            <div style="font-size:14px; color:var(--on-surface-variant); margin-top:2px;">
               ${fmt1(m.weightKg)} kg${m.bodyFatPct != null ? ' · ' + fmt1(m.bodyFatPct) + '% grasa' : ''}
             </div>
           </div>
@@ -700,7 +758,7 @@ function initProgressCharts(profile, measurements) {
       }
     });
   } else if (ctxC) {
-    ctxC.parentElement.innerHTML = '<div style="font-weight:700; margin-bottom:10px;">🧬 Composición corporal</div><p style="color:var(--on-surface-variant); font-size:13px;">Registra % grasa/músculo en tus mediciones para ver este gráfico.</p>';
+    ctxC.parentElement.innerHTML = '<div style="font-weight:700; margin-bottom:10px;">🧬 Composición corporal</div><p style="color:var(--on-surface-variant); font-size:14px;">Registra % grasa/músculo en tus mediciones para ver este gráfico.</p>';
   }
 }
 
