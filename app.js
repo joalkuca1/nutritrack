@@ -16,6 +16,90 @@ const AVATAR_PALETTE = [
   { bg: '#F6D8CB', fg: '#4E1D0C' }
 ];
 
+/* ---------- Glosario amigable (tono "nutriólogo positivo") ---------- */
+const GLOSSARY = {
+  weightKg: {
+    icon: '⚖️', title: 'Peso',
+    text: 'Tu punto de partida, no toda la historia. Varía por agua y hormonas — importa la tendencia, no un solo día. 💚'
+  },
+  bmi: {
+    icon: '📐', title: 'IMC',
+    text: 'Fórmula de peso y estatura. Útil como referencia, pero no distingue grasa de músculo.'
+  },
+  bodyFatPct: {
+    icon: '🔥', title: '% Grasa corporal',
+    text: 'Cuánto de tu cuerpo es grasa. Bajarlo poco a poco significa que tu cuerpo la está usando como energía. ¡Vas bien!'
+  },
+  fatMassKg: {
+    icon: '🔥', title: 'Masa grasa',
+    text: 'El mismo dato que el % de grasa, pero en kilos en vez de porcentaje. Baja junto con el % — es normal que se muevan igual.'
+  },
+  skeletalMusclePct: {
+    icon: '💪', title: 'Músculo esquelético',
+    text: 'Tu motor metabólico: a más músculo, más calorías quemas en reposo. Si sube mientras bajas de peso, es señal excelente.'
+  },
+  leanMassKg: {
+    icon: '💪', title: 'Masa magra',
+    text: 'Todo tu peso que no es grasa: músculo, huesos, órganos y agua. Mantenerla estable (o subirla) mientras bajas de peso es una gran señal.'
+  },
+  waterPct: {
+    icon: '💧', title: '% Agua corporal',
+    text: 'Varía día a día por hidratación y sal. Cambios pequeños son normales.'
+  },
+  boneMassKg: {
+    icon: '🦴', title: 'Masa ósea',
+    text: 'El peso de tus huesos. Se mantiene estable; variaciones son del aparato, no reales.'
+  },
+  bmrKcal: {
+    icon: '🔥', title: 'Metabolismo basal (BMR)',
+    text: 'Calorías que gastas solo por existir. Más músculo = BMR más alto = más fácil mantener tu peso.'
+  },
+  metabolicAge: {
+    icon: '🎂', title: 'Edad metabólica',
+    text: 'Compara tu metabolismo con otras edades. Menor a la tuya = vas muy bien. Mayor = solo sigue constante.'
+  },
+  visceralFat: {
+    icon: '🫀', title: 'Grasa visceral',
+    text: 'Grasa alrededor de tus órganos. Rango sano: 1-12. Bajarla aquí vale tanto como bajar en la báscula.'
+  },
+  icc: {
+    icon: '📏', title: 'Índice Cintura-Cadera',
+    text: 'Cómo se distribuye tu grasa. Buen indicador junto al peso e IMC.'
+  },
+  waistCm: {
+    icon: '📏', title: 'Cintura',
+    text: 'Mide siempre en el mismo punto (a la altura del ombligo) para que las comparaciones sean justas.'
+  },
+  hipCm: {
+    icon: '📏', title: 'Cadera',
+    text: 'Mide en la parte más ancha de la cadera, siempre de pie y relajada.'
+  },
+  armCm: {
+    icon: '📏', title: 'Brazo',
+    text: 'Mide relajado (sin flexionar) en el punto medio entre hombro y codo.'
+  },
+  thighCm: {
+    icon: '📏', title: 'Muslo',
+    text: 'Mide en el punto más ancho, de pie y con el peso repartido en ambas piernas.'
+  },
+  chestCm: {
+    icon: '📏', title: 'Pecho',
+    text: 'Mide a la altura de los pezones, cinta horizontal y sin apretar.'
+  },
+  percentNote: {
+    icon: '🧩', title: '¿Por qué estos % no suman 100%?',
+    text: 'Porque se traslapan: el agua vive dentro del músculo, no es "aparte". Es como fruta y jugo — el jugo ya está contado dentro de la fruta. Cada dato se interpreta solo, comparándolo con tu propia semana pasada, no sumándolo con los demás.'
+  }
+};
+
+const GLOSSARY_ORDER = [
+  'weightKg', 'bmi', 'bodyFatPct', 'fatMassKg', 'leanMassKg',
+  'skeletalMusclePct', 'waterPct', 'boneMassKg', 'bmrKcal',
+  'metabolicAge', 'visceralFat', 'icc',
+  'waistCm', 'hipCm', 'armCm', 'thighCm', 'chestCm',
+  'percentNote'
+];
+
 /* ---------- Almacenamiento (localStorage) ---------- */
 const Store = {
   get(key, fallback) {
@@ -196,14 +280,40 @@ function streakWeeks(measurements) {
   return streak;
 }
 
+/* ---------- Hitos de meta (25% / 50% / 75% / 100%) ---------- */
+function checkGoalMilestone(measurements, profile) {
+  if (!profile || !profile.goalWeightKg || measurements.length < 2) return null;
+  const first = measurements[0];
+  const prev = measurements[measurements.length - 2];
+  const last = measurements[measurements.length - 1];
+  const totalNeeded = profile.goalWeightKg - first.weightKg;
+  if (Math.abs(totalNeeded) < 0.01) return null;
+
+  const prevProgress = ((prev.weightKg - first.weightKg) / totalNeeded) * 100;
+  const lastProgress = ((last.weightKg - first.weightKg) / totalNeeded) * 100;
+
+  const milestones = [100, 75, 50, 25];
+  for (const ms of milestones) {
+    if (prevProgress < ms && lastProgress >= ms) {
+      if (ms === 100) return '🎉🏁 ¡Meta cumplida! Llegaste a tu peso objetivo.';
+      return `🏁 ¡Alcanzaste el ${ms}% de tu meta! Sigue así 💪`;
+    }
+  }
+  return null;
+}
+
 /* ---------- Insights automáticos en lenguaje natural ---------- */
-function buildInsights(measurements, lowerWeightIsBetter) {
+function buildInsights(measurements, lowerWeightIsBetter, profile) {
   if (measurements.length < 2) {
     return ['Registra al menos dos mediciones para ver comparativas automáticas.'];
   }
   const prev = measurements[measurements.length - 2];
   const last = measurements[measurements.length - 1];
   const out = [];
+
+  // Hito de meta primero (si aplica), para que destaque arriba
+  const milestone = checkGoalMilestone(measurements, profile);
+  if (milestone) out.push(milestone);
 
   const dw = last.weightKg - prev.weightKg;
   if (Math.abs(dw) < 0.05) {
@@ -217,18 +327,25 @@ function buildInsights(measurements, lowerWeightIsBetter) {
     out.push(line);
   }
 
+  let dFat = null, dMuscle = null;
+
   if (prev.fatMassKg != null && last.fatMassKg != null) {
-    const d = last.fatMassKg - prev.fatMassKg;
-    out.push(Math.abs(d) < 0.05
+    dFat = last.fatMassKg - prev.fatMassKg;
+    out.push(Math.abs(dFat) < 0.05
       ? '🔥 Masa grasa estable'
-      : `🔥 Grasa corporal ${d < 0 ? '▼' : '▲'} ${fmt1(Math.abs(d))} kg`);
+      : `🔥 Grasa corporal ${dFat < 0 ? '▼' : '▲'} ${fmt1(Math.abs(dFat))} kg`);
   }
 
   if (prev.skeletalMusclePct != null && last.skeletalMusclePct != null) {
-    const d = last.skeletalMusclePct - prev.skeletalMusclePct;
-    out.push(Math.abs(d) < 0.05
+    dMuscle = last.skeletalMusclePct - prev.skeletalMusclePct;
+    out.push(Math.abs(dMuscle) < 0.05
       ? '💪 Músculo esquelético estable'
-      : `💪 Músculo ${d > 0 ? '▲' : '▼'} ${fmt1(Math.abs(d))} %`);
+      : `💪 Músculo ${dMuscle > 0 ? '▲' : '▼'} ${fmt1(Math.abs(dMuscle))} %`);
+  }
+
+  // Recomposición corporal: grasa baja + músculo sube a la vez
+  if (dFat !== null && dMuscle !== null && dFat < -0.05 && dMuscle > 0.05) {
+    out.unshift('🎉 ¡Recomposición corporal! Estás perdiendo grasa y ganando músculo al mismo tiempo — justo lo ideal.');
   }
 
   if (prev.waistCm != null && last.waistCm != null) {
@@ -441,4 +558,4 @@ async function exportProfilePDF(profile, measurements) {
 
   doc.save(`NutriTrack_${profile.name.replace(/\s+/g, '_')}.pdf`);
   toast('✅ PDF generado');
-  }
+}
