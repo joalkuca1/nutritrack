@@ -117,6 +117,43 @@ function selectSegment(btn, hiddenId) {
   document.getElementById(hiddenId).value = btn.textContent;
 }
 
+/* ================= GLOSARIO (explicaciones amigables) ================= */
+function openGlossaryModal(key) {
+  const g = GLOSSARY[key];
+  if (!g) return;
+  const html = `
+    <div class="sheet-handle"></div>
+    <div style="text-align:center; font-size:40px; margin-bottom:4px;">${g.icon}</div>
+    <h2 style="text-align:center;">${g.title}</h2>
+    <p style="font-size:15px; line-height:1.55; color:var(--on-surface-variant); margin-top:12px;">${g.text}</p>
+    <button class="btn btn-tonal" style="margin-top:20px;" onclick="openFullGlossary()">📖 Ver glosario completo</button>
+  `;
+  openSheet(html);
+}
+
+function openFullGlossary() {
+  let items = '';
+  GLOSSARY_ORDER.forEach(key => {
+    const g = GLOSSARY[key];
+    if (!g) return;
+    items += `
+      <div style="display:flex; gap:12px; padding:14px 0; border-bottom:1px solid rgba(0,0,0,0.07);">
+        <div style="font-size:24px; line-height:1;">${g.icon}</div>
+        <div>
+          <div style="font-weight:700; margin-bottom:3px;">${g.title}</div>
+          <div style="font-size:13.5px; line-height:1.45; color:var(--on-surface-variant);">${g.text}</div>
+        </div>
+      </div>`;
+  });
+  const html = `
+    <div class="sheet-handle"></div>
+    <h2>📖 Glosario</h2>
+    <p class="sheet-sub">Entiende tus números, sin tecnicismos</p>
+    <div style="max-height:58vh; overflow-y:auto; margin-top:6px;">${items}</div>
+  `;
+  openSheet(html);
+}
+
 /* ================= FORM: PERFIL ================= */
 function openAddProfileSheet() { renderProfileForm(null); }
 function openEditProfileSheet(id) { renderProfileForm(Profiles.getById(id)); }
@@ -232,7 +269,10 @@ function renderDashboardTab(profile, measurements) {
           ${escapeHtml(profile.name).charAt(0).toUpperCase()}
         </div>
       </div>
-      ${streak >= 2 ? `<div class="streak-chip">🔥 ${streak} semanas de racha</div>` : ''}
+      <div style="display:flex; align-items:center; gap:14px; margin-top:6px; flex-wrap:wrap;">
+        ${streak >= 2 ? `<div class="streak-chip">🔥 ${streak} semanas de racha</div>` : ''}
+        <span onclick="openFullGlossary()" style="color:var(--primary); font-weight:600; font-size:13px; cursor:pointer;">📖 Glosario</span>
+      </div>
     </div>`;
 
   if (measurements.length === 0) {
@@ -259,10 +299,10 @@ function renderDashboardTab(profile, measurements) {
   let pillsHtml = '';
   if (profile.heightCm) {
     const b = calcBMI(last.weightKg, profile.heightCm);
-    pillsHtml += `<div class="pill">IMC ${fmt1(b)} · ${bmiCategory(b)}</div>`;
+    pillsHtml += `<div class="pill" onclick="openGlossaryModal('bmi')" style="cursor:pointer;">IMC ${fmt1(b)} · ${bmiCategory(b)} ⓘ</div>`;
   }
   const icc = waistHipRatio(last.waistCm, last.hipCm);
-  if (icc) pillsHtml += `<div class="pill">ICC ${fmt2(icc)}</div>`;
+  if (icc) pillsHtml += `<div class="pill" onclick="openGlossaryModal('icc')" style="cursor:pointer;">ICC ${fmt2(icc)} ⓘ</div>`;
 
   let goalHtml = '';
   if (profile.goalWeightKg && measurements.length >= 2) {
@@ -283,7 +323,7 @@ function renderDashboardTab(profile, measurements) {
     <div class="hero">
       <div class="hero-top">
         <div>
-          <div class="hero-label">PESO ACTUAL</div>
+          <div class="hero-label">PESO ACTUAL <span onclick="openGlossaryModal('weightKg')" style="cursor:pointer; opacity:0.75; font-size:11px;">ⓘ</span></div>
           <div class="hero-value"><span class="num">${fmt1(last.weightKg)}</span><span class="unit">kg</span></div>
           <div class="hero-date">Medido el ${formatDateShort(last.date)}</div>
         </div>
@@ -293,7 +333,7 @@ function renderDashboardTab(profile, measurements) {
       ${goalHtml}
     </div>`;
 
-  const insights = buildInsights(measurements, lowerIsBetter);
+  const insights = buildInsights(measurements, lowerIsBetter, profile);
   html += `
     <div class="card insight-box">
       <div class="insight-icon">💡</div>
@@ -302,7 +342,12 @@ function renderDashboardTab(profile, measurements) {
 
   const metrics = buildMiniMetrics(measurements);
   if (metrics.length) {
-    html += `<div class="section-title">Resumen corporal</div><div class="scroll-row">`;
+    html += `
+      <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Resumen corporal</span>
+        <span onclick="openGlossaryModal('percentNote')" style="font-size:12px; font-weight:500; color:var(--primary); cursor:pointer;">¿No suman 100%? ⓘ</span>
+      </div>
+      <div class="scroll-row">`;
     metrics.forEach(m => { html += renderMetricCard(m); });
     html += `</div>`;
   }
@@ -323,9 +368,13 @@ function renderMetricCard(metric) {
   }
   const valText = metric.dec === 0 ? fmt0(current) : fmt1(current);
   const sparkline = values.length >= 2 ? renderSparklineSVG(values.slice(-8)) : '';
+  const hasGlossary = !!GLOSSARY[metric.key];
   return `
     <div class="metric-card">
-      <div class="metric-label">${metric.label}</div>
+      <div class="metric-label">
+        ${metric.label}
+        ${hasGlossary ? `<span onclick="event.stopPropagation(); openGlossaryModal('${metric.key}')" style="cursor:pointer; opacity:0.6; font-size:12px; margin-left:3px;">ⓘ</span>` : ''}
+      </div>
       <div class="metric-value"><span class="n">${valText}</span>${metric.unit ? `<span class="u">${metric.unit}</span>` : ''}</div>
       ${deltaHtml}
       ${sparkline}
