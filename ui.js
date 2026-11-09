@@ -1,5 +1,5 @@
 /* ========= NutriTrack - ui.js =========
-   Capa visual: pantallas, navegación, gráficas, formularios
+   Capa visual: pantallas, navegación, gráficas, formularios, respaldos
 ======================================== */
 
 const State = {
@@ -81,6 +81,129 @@ function showPageScrollHint() {
   }
 }
 
+/* ================= RESPALDO / RESTAURACIÓN (UI) ================= */
+function downloadBackupNow() {
+  try {
+    const name = Backup.download();
+    toast('💾 Respaldo guardado en Descargas');
+    return name;
+  } catch (e) {
+    console.error(e);
+    toast('⚠️ No se pudo crear el respaldo');
+    return null;
+  }
+}
+
+function enableAutoBackupAndDownload() {
+  Backup.setAutoEnabled(true);
+  requestPersistentStorage();
+  downloadBackupNow();
+  toast('✅ Copia automática activada');
+}
+
+function disableAutoBackup() {
+  Backup.setAutoEnabled(false);
+  toast('Copia automática desactivada');
+  render();
+}
+
+function triggerRestoreBackup(inputId) {
+  const input = document.getElementById(inputId || 'restore_file_input');
+  if (input) input.click();
+}
+
+function handleRestoreFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  if (Profiles.getAll().length > 0) {
+    const ok = confirm(
+      'Esto reemplazará TODOS los perfiles y mediciones actuales por los del archivo de respaldo.\n\n¿Continuar?'
+    );
+    if (!ok) {
+      event.target.value = '';
+      return;
+    }
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const count = Backup.restore(data);
+      toast(`✅ Datos restaurados (${count} perfil${count === 1 ? '' : 'es'})`);
+
+      const activeId = getActiveProfileId();
+      if (activeId && Profiles.getById(activeId)) {
+        State.profileId = activeId;
+        State.screen = 'main';
+        State.tab = 'dashboard';
+      } else {
+        State.profileId = null;
+        State.screen = 'profiles';
+      }
+      render();
+    } catch (e) {
+      console.error(e);
+      toast('⚠️ ' + (e.message || 'No se pudo leer el respaldo'));
+    }
+  };
+  reader.onerror = () => toast('⚠️ No se pudo leer el archivo');
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function openBackupWelcomeSheet() {
+  requestPersistentStorage();
+  const html = `
+    <div class="sheet-handle"></div>
+    <h2>🛡️ Protege tus datos</h2>
+    <p class="sheet-sub">Para que no se pierdan si borras el historial del navegador</p>
+    <p style="font-size:14.5px; line-height:1.55; color:var(--on-surface-variant); margin:0 0 12px;">
+      NutriTrack guarda tus datos en este dispositivo. Te recomendamos activar la
+      <b>copia automática</b>: cada vez que registres una medición (semana / quincena / mes),
+      se descargará un archivo de respaldo en tu carpeta de <b>Descargas</b>.
+    </p>
+    <p style="font-size:13px; line-height:1.45; color:var(--on-surface-variant); margin:0 0 16px;">
+      Tip: muévelo a Google Drive o envíatelo por WhatsApp. Si un día la app aparece vacía,
+      toca <b>Restaurar mis datos</b> y elige ese archivo.
+    </p>
+    <button class="btn btn-filled" onclick="enableAutoBackupAndDownload(); closeSheet();">
+      💾 Activar y guardar primera copia
+    </button>
+    <button class="btn btn-text" onclick="closeSheet();">Ahora no</button>
+  `;
+  openSheet(html);
+}
+
+function renderBackupCard() {
+  const auto = Backup.isAutoEnabled();
+  const last = Backup.lastBackupLabel();
+  return `
+    <div class="card" style="border:1.5px solid var(--primary);">
+      <div style="font-weight:800; color:var(--primary); font-size:16px; margin-bottom:6px;">🛡️ Copias de seguridad</div>
+      <p style="font-size:13.5px; color:var(--on-surface-variant); line-height:1.45; margin:0 0 12px;">
+        Descarga un archivo con todos tus perfiles y mediciones. Si borras datos del navegador,
+        podrás recuperarlos al instante.
+      </p>
+      <div style="font-size:12.5px; color:var(--on-surface-variant); margin-bottom:12px;">
+        ${auto ? '✅ Copia automática: <b>activada</b> (al guardar cada medición)' : 'Copia automática: desactivada'}
+        ${last ? `<br>Último respaldo: ${last}` : ''}
+      </div>
+      <button class="btn btn-filled" onclick="downloadBackupNow()">⬇️ Descargar respaldo ahora</button>
+      <button class="btn btn-tonal" style="width:100%; margin-top:8px;" onclick="triggerRestoreBackup('restore_file_input_profiles')">
+        📂 Restaurar desde archivo
+      </button>
+      <input type="file" id="restore_file_input_profiles" accept=".json,application/json" class="hidden"
+        onchange="handleRestoreFile(event)">
+      ${auto
+        ? `<button class="btn btn-text" onclick="disableAutoBackup()">Desactivar copia automática</button>`
+        : `<button class="btn btn-text" onclick="enableAutoBackupAndDownload(); render();">Activar copia automática</button>`
+      }
+    </div>
+  `;
+}
+
 /* ================= RENDER PRINCIPAL ================= */
 function render() {
   const app = document.getElementById('app');
@@ -106,32 +229,54 @@ function renderProfilesScreen() {
       <h1 class="greeting" style="margin-top:8px;">¿Quién se pesa hoy?</h1>
       <p class="subtext" style="margin-bottom:16px;">Selecciona un perfil para ver su seguimiento</p>
   `;
+
   if (profiles.length === 0) {
+    // Pantalla inteligente: restaurar O crear nuevo
     html += `
       <div class="empty-state">
         <div class="icon">👤</div>
         <h3>Aún no hay perfiles</h3>
-        <p>Crea el primero para empezar tu seguimiento</p>
-      </div>`;
-  } else {
-    profiles.forEach(p => {
-      const pal = AVATAR_PALETTE[p.avatarIndex % AVATAR_PALETTE.length];
-      const metaParts = [];
-      if (p.heightCm) metaParts.push(`Altura ${fmt0(p.heightCm)} cm`);
-      if (p.goalWeightKg) metaParts.push(`Meta ${fmt1(p.goalWeightKg)} kg`);
-      html += `
-        <div class="profile-card" onclick="openProfile('${p.id}')">
-          <div class="avatar" style="background:${pal.bg}; color:${pal.fg};">${escapeHtml(p.name).charAt(0).toUpperCase()}</div>
-          <div class="profile-info">
-            <div class="profile-name">${escapeHtml(p.name)}</div>
-            ${metaParts.length ? `<div class="profile-meta">${metaParts.join(' · ')}</div>` : ''}
-          </div>
-          <span class="chevron" onclick="event.stopPropagation(); openEditProfileSheet('${p.id}')">✏️</span>
-        </div>`;
-    });
+        <p>Crea el primero para empezar, o restaura un respaldo si ya usabas NutriTrack.</p>
+      </div>
+
+      <div class="card" style="border:1.5px solid var(--primary); margin:0 0 14px;">
+        <div style="font-weight:800; color:var(--primary); margin-bottom:6px;">📂 ¿Ya usabas NutriTrack?</div>
+        <p style="font-size:14px; color:var(--on-surface-variant); line-height:1.45; margin:0 0 12px;">
+          Si limpiaste el historial o cambiaste de tablet, recupera aquí tu archivo
+          <b>NutriTrack_backup_....json</b> (carpeta Descargas / Drive / WhatsApp).
+        </p>
+        <button class="btn btn-filled" onclick="triggerRestoreBackup('restore_file_input')">
+          📂 Restaurar mis datos
+        </button>
+        <input type="file" id="restore_file_input" accept=".json,application/json" class="hidden"
+          onchange="handleRestoreFile(event)">
+      </div>
+
+      <button class="btn btn-filled" style="margin-top:4px;" onclick="openAddProfileSheet()">➕ Crear mi primer perfil</button>
+    </div>`;
+    return html;
   }
+
+  profiles.forEach(p => {
+    const pal = AVATAR_PALETTE[p.avatarIndex % AVATAR_PALETTE.length];
+    const metaParts = [];
+    if (p.heightCm) metaParts.push(`Altura ${fmt0(p.heightCm)} cm`);
+    if (p.goalWeightKg) metaParts.push(`Meta ${fmt1(p.goalWeightKg)} kg`);
+    html += `
+      <div class="profile-card" onclick="openProfile('${p.id}')">
+        <div class="avatar" style="background:${pal.bg}; color:${pal.fg};">${escapeHtml(p.name).charAt(0).toUpperCase()}</div>
+        <div class="profile-info">
+          <div class="profile-name">${escapeHtml(p.name)}</div>
+          ${metaParts.length ? `<div class="profile-meta">${metaParts.join(' · ')}</div>` : ''}
+        </div>
+        <span class="chevron" onclick="event.stopPropagation(); openEditProfileSheet('${p.id}')">✏️</span>
+      </div>`;
+  });
+
   html += `
       <button class="btn btn-filled" style="margin-top:12px;" onclick="openAddProfileSheet()">➕ Nuevo perfil</button>
+      <div style="height:12px;"></div>
+      ${renderBackupCard()}
     </div>`;
   return html;
 }
@@ -260,15 +405,19 @@ function saveProfileForm(id) {
   if (id) {
     Profiles.update(id, { name, gender, heightCm, goalWeightKg });
     toast('✅ Perfil actualizado');
+    closeSheet();
+    render();
   } else {
+    const wasEmpty = Profiles.getAll().length === 0;
     const p = Profiles.create({ name, gender, heightCm, goalWeightKg });
     closeSheet();
     openProfile(p.id);
     toast('✅ Perfil creado');
-    return;
+    // Primera vez: ofrecer protección de datos
+    if (wasEmpty && !Backup.isAutoEnabled()) {
+      setTimeout(() => openBackupWelcomeSheet(), 450);
+    }
   }
-  closeSheet();
-  render();
 }
 
 function confirmDeleteProfile(id) {
@@ -476,7 +625,12 @@ function loadDemoData() {
       waistCm: d.waist, hipCm: d.hip
     });
   });
-  toast('✅ Datos de ejemplo cargados');
+  // Si auto-backup está on, actualiza el archivo también con el demo
+  if (Backup.autoDownloadIfEnabled()) {
+    toast('✅ Demo cargado · respaldo actualizado');
+  } else {
+    toast('✅ Datos de ejemplo cargados');
+  }
   render();
 }
 
@@ -597,13 +751,19 @@ function saveMeasurementForm() {
   };
   if (State.editingMeasurementId) {
     Measurements.update(State.profileId, State.editingMeasurementId, data);
-    toast('✅ Medición actualizada');
   } else {
     Measurements.create(State.profileId, data);
-    toast('✅ Medición guardada');
   }
+
+  // localStorage ya guardó; si auto-backup está on, también descarga el .json
+  const autoOk = Backup.autoDownloadIfEnabled();
   closeSheet();
   render();
+  if (autoOk) {
+    toast('✅ Guardado · respaldo actualizado en Descargas');
+  } else {
+    toast(State.editingMeasurementId ? '✅ Medición actualizada' : '✅ Medición guardada');
+  }
 }
 
 function confirmDeleteMeasurement(id) {
@@ -798,6 +958,9 @@ function movePhotoSlider(val) {
 
 /* ================= BOOTSTRAP ================= */
 document.addEventListener('DOMContentLoaded', () => {
+  // Candado anti-borrado (Chrome/Android intentará no limpiar NutriTrack)
+  requestPersistentStorage();
+
   document.getElementById('overlay').addEventListener('click', (e) => {
     if (e.target.id === 'overlay') closeSheet();
   });
