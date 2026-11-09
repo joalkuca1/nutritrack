@@ -1,11 +1,12 @@
 /* ========= NutriTrack - app.js =========
-   Capa de datos: perfiles, mediciones, cálculos, almacenamiento, PDF
+   Capa de datos: perfiles, mediciones, cálculos, almacenamiento, PDF, respaldos
 ======================================== */
 
 const STORAGE_KEYS = {
   PROFILES: 'nt_profiles',
   MEASUREMENTS: (profileId) => `nt_measurements_${profileId}`,
-  ACTIVE_PROFILE: 'nt_active_profile'
+  ACTIVE_PROFILE: 'nt_active_profile',
+  BACKUP_META: 'nt_backup_meta'
 };
 
 const AVATAR_PALETTE = [
@@ -120,6 +121,126 @@ const Store = {
   },
   remove(key) { localStorage.removeItem(key); }
 };
+
+/* ---------- Copia de seguridad (export / import / auto) ---------- */
+const Backup = {
+  build() {
+    const profiles = Profiles.getAll();
+    const measurements = {};
+    profiles.forEach(p => {
+      measurements[p.id] = Store.get(STORAGE_KEYS.MEASUREMENTS(p.id), []);
+    });
+    return {
+      app: 'NutriTrack',
+      version: 1,
+      exportedAt: Date.now(),
+      activeProfileId: getActiveProfileId(),
+      profiles,
+      measurements
+    };
+  },
+
+  restore(data) {
+    if (!data || typeof data !== 'object') {
+      throw new Error('Archivo de respaldo no válido');
+    }
+    // Acepta respaldos propios; si alguien exporta a mano, exige al menos profiles[]
+    if (!Array.isArray(data.profiles)) {
+      throw new Error('El archivo no contiene perfiles de NutriTrack');
+    }
+    if (data.app && data.app !== 'NutriTrack') {
+      throw new Error('Este archivo no es un respaldo de NutriTrack');
+    }
+
+    // Limpia mediciones de perfiles actuales para no dejar basura huérfana
+    Profiles.getAll().forEach(p => {
+      Store.remove(STORAGE_KEYS.MEASUREMENTS(p.id));
+    });
+
+    Store.set(STORAGE_KEYS.PROFILES, data.profiles);
+
+    const measMap = data.measurements || {};
+    data.profiles.forEach(p => {
+      const list = Array.isArray(measMap[p.id]) ? measMap[p.id] : [];
+      Store.set(STORAGE_KEYS.MEASUREMENTS(p.id), list);
+    });
+
+    if (data.activeProfileId && data.profiles.some(p => p.id === data.activeProfileId)) {
+      setActiveProfileId(data.activeProfileId);
+    } else if (data.profiles.length) {
+      setActiveProfileId(data.profiles[0].id);
+    } else {
+      setActiveProfileId(null);
+    }
+
+    return data.profiles.length;
+  },
+
+  download() {
+    const payload = this.build();
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const name = `NutriTrack_backup_${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    const meta = Store.get(STORAGE_KEYS.BACKUP_META, {});
+    meta.lastBackupAt = Date.now();
+    Store.set(STORAGE_KEYS.BACKUP_META, meta);
+    return name;
+  },
+
+  isAutoEnabled() {
+    const meta = Store.get(STORAGE_KEYS.BACKUP_META, {});
+    return !!meta.auto;
+  },
+
+  setAutoEnabled(on) {
+    const meta = Store.get(STORAGE_KEYS.BACKUP_META, {});
+    meta.auto = !!on;
+    Store.set(STORAGE_KEYS.BACKUP_META, meta);
+  },
+
+  /** Si el usuario activó auto-respaldo, descarga al guardar una medición */
+  autoDownloadIfEnabled() {
+    if (!this.isAutoEnabled()) return false;
+    try {
+      this.download();
+      return true;
+    } catch (e) {
+      console.error('Auto-backup falló', e);
+      return false;
+    }
+  },
+
+  lastBackupLabel() {
+    const meta = Store.get(STORAGE_KEYS.BACKUP_META, {});
+    if (!meta.lastBackupAt) return null;
+    return formatDateLong(meta.lastBackupAt);
+  }
+};
+
+/** Pide a Chrome/Android no borrar los datos en limpiezas automáticas */
+async function requestPersistentStorage() {
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      const already = await navigator.storage.persisted();
+      if (already) return true;
+      return await navigator.storage.persist();
+    }
+  } catch (e) {
+    console.warn('persist()', e);
+  }
+  return false;
+}
 
 /* ---------- Perfiles ---------- */
 const Profiles = {
@@ -311,7 +432,6 @@ function buildInsights(measurements, lowerWeightIsBetter, profile) {
   const last = measurements[measurements.length - 1];
   const out = [];
 
-  // Hito de meta primero (si aplica), para que destaque arriba
   const milestone = checkGoalMilestone(measurements, profile);
   if (milestone) out.push(milestone);
 
@@ -343,7 +463,6 @@ function buildInsights(measurements, lowerWeightIsBetter, profile) {
       : `💪 Músculo ${dMuscle > 0 ? '▲' : '▼'} ${fmt1(Math.abs(dMuscle))} %`);
   }
 
-  // Recomposición corporal: grasa baja + músculo sube a la vez
   if (dFat !== null && dMuscle !== null && dFat < -0.05 && dMuscle > 0.05) {
     out.unshift('🎉 ¡Recomposición corporal! Estás perdiendo grasa y ganando músculo al mismo tiempo — justo lo ideal.');
   }
